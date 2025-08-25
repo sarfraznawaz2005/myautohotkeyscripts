@@ -28,4 +28,4 @@ A_IconTip := "My Assistant"
 #Include EnvVariableRotator.ahk
 #Include AiContextMenu.ahk
 #Include PHPCodeRunner.ahk
-#Include StartStopAIVideoGenApp.ahk
+#Include ShortCuts.ahk
