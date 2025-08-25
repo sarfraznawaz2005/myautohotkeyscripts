@@ -2,6 +2,18 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 
+; ------------------------------------------------------------------------------------------
+; Global Error Handler
+; ------------------------------------------------------------------------------------------
+OnError(ShowError)
+ShowError(e, *) {
+    MsgBox("An error occurred:`n`n"
+        . "File: " e.File "`n"
+        . "Line: " e.Line "`n"
+        . "Message: " e.Message, "Script Error", "IconError")
+    return true ; Suppress default dialog
+}
+
 SetTitleMatchMode "Regex"
 SetWorkingDir A_ScriptDir ; Ensure a consistant starting directory.
 

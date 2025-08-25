@@ -15,6 +15,7 @@ global g_DebounceMs := 200
 global g_SelCheckInProgress := false
 global g_ConfigPath := A_ScriptDir "\AiContextMenu.ini"
 global g_ChatHistoryFile := ""
+global g_active_popup_dlg := ""
 global g_LastAction := {}
 global g_DefaultActions := [
     Map("key","autocomplete","name","Autocomplete","shortcut","1","system_content","Continue the text intelligently, maintaining tone and context:"),
@@ -130,8 +131,8 @@ BuildMenu() {
     }
 
     g_Menu.Add() ; Existing separator
-    customTitle := "&0. Custom"
-    g_Menu.Add(customTitle, OnCustomActionChosen) ; New custom action
+    customTitle := "&0. Chat"
+    g_Menu.Add(customTitle, OnChatChosen) ; New chat action
     ;g_Menu.Add() ; New separator for the custom action
     ;g_Menu.Add("Reload Config  (Ctrl+Alt+R)", ReloadConfig)
     ;g_Menu.Add("Exit", (*) => ExitApp())
@@ -289,62 +290,57 @@ OnActionChosen(action, *) {
     SendActionToWebhook(action, sel)
 }
 
-OnCustomActionChosen(*) {
-    global g_Config, g_LastSelection, g_LastAction
+OnChatChosen(*) {
+    sel := GetSelectedText()
 
-    sel := "" ; Don't get selected text for custom actions
-
-    ; Show custom prompt dialog
-    customPrompt := ShowCustomPromptDialog()
-
-    if (customPrompt == "")
-        return
-
-    ; Create a dummy action map for the custom prompt
-    customAction := Map(
-        "key", "custom_prompt",
-        "name", "Custom Prompt",
-        "shortcut", "",
-        "system_content", customPrompt
-    )
-
-    g_LastAction := customAction
-    g_LastSelection := sel
-    SendActionToWebhook(customAction, sel)
+    if (Trim(sel) != "") {
+        SendInitialChatMessage(sel)
+    } else {
+        ShowChatResponsePopup("Chat", "", (*) => OnChatChosen(), true)
+    }
 }
 
-ShowCustomPromptDialog() {
-    result := ""
+SendInitialChatMessage(user_message) {
+    global g_Config, g_LastAction, g_LastSelection
 
-    ; Create custom dialog
-    dlg := Gui("+AlwaysOnTop -MinimizeBox", "Custom AI Prompt")
-    dlg.SetFont("s10", "Segoe UI")
-    dlg.MarginX := 16
-    dlg.MarginY := 16
+    url     := Trim(g_Config.Webhook["url"], ' "')
+    method  := g_Config.Webhook["method"]
+    headers := g_Config.Webhook["headers"]
 
-    ; Add label and textarea
-    dlg.Add("Text", "w400", "Enter Your Prompt")
-    promptEdit := dlg.Add("Edit", "w600", "")
+    if (!url) {
+        Notify("Webhook URL missing (see [webhook] in AiContextMenu.ini).")
+        return
+    }
 
-    ; Add buttons
-    btnOK := dlg.Add("Button", "w80 h30", "OK")
-    btnCancel := dlg.Add("Button", "x+10 yp w80 h30", "Cancel")
+    payload := "You are a helpful assistant. Your answer must be simple text, no markdown, no html, just pure simple text. Respond to the user's message.`r`n`r`nUSER MESSAGE: " . user_message
 
-    ; Set default button
-    btnOK.Opt("+Default")
+    json := '{'
+        . '"contents":[{"parts":[{"text":"' . JsonEscape(payload) . '"}]}]'
+        . '}'
 
-    ; Event handlers
-    btnOK.OnEvent("Click", (*) => (result := promptEdit.Text, dlg.Hide()))
-    btnCancel.OnEvent("Click", (*) => (result := "", dlg.Hide()))
-    dlg.OnEvent("Close", (*) => dlg.Hide())
-    dlg.OnEvent("Escape", (*) => (result := "", dlg.Hide()))
+    if (!headers.Has("Content-Type"))
+        headers["Content-Type"] := "application/json; charset=utf-8"
 
-    ; Show dialog and wait for user action
-    dlg.Show()
-    WinWaitClose(dlg.Hwnd)
-    dlg.Destroy()
+	ApiKey := EnvGet("GEMINI_API_KEY")
+	url := url . ApiKey
 
-    return Trim(result)
+    resp := HttpSend(url, method, json, headers)
+
+    g_LastAction := Map("system_content", user_message)
+    g_LastSelection := ""
+
+    if (resp.status >= 200 && resp.status < 300) {
+        out := ExtractGeminiText(resp.text)
+        if (!out)
+            out := resp.text
+        
+        retryCallback := (*) => SendInitialChatMessage(user_message)
+        ShowChatResponsePopup("Chat", out, retryCallback)
+
+    } else {
+        retryCallback := (*) => SendInitialChatMessage(user_message)
+        ShowChatResponsePopup("Chat - Error " . resp.status, resp.text, retryCallback)
+    }
 }
 
 InsertIntoTargetAndClose(dlg, editCtrl, target, *) {
@@ -354,9 +350,15 @@ InsertIntoTargetAndClose(dlg, editCtrl, target, *) {
 }
 
 ShowSimpleResponsePopup(title, body, retryCallback) {
+    global g_active_popup_dlg
+    if (IsObject(g_active_popup_dlg)) {
+        try g_active_popup_dlg.Destroy()
+    }
+
     body := NormalizeWebhookText(body)
 
     dlg := Gui("+AlwaysOnTop -MinimizeBox", title)
+    g_active_popup_dlg := dlg
     dlg.SetFont("s11", "Segoe UI")
 
     e := dlg.AddEdit("w800 r15 ReadOnly Wrap VScroll", body)
@@ -374,13 +376,18 @@ ShowSimpleResponsePopup(title, body, retryCallback) {
     
     btnClose.Opt("+Default")
 
-    btnCopy.OnEvent("Click", (*) => (A_Clipboard := e.Value, Notify("Copied."), dlg.Destroy()))
+    destroy_and_clear := (*) => (g_active_popup_dlg := "", dlg.Destroy())
+
+    btnCopy.OnEvent("Click", (*) => (A_Clipboard := e.Value, Notify("Copied."), destroy_and_clear()))
 
 	target := SnapshotTarget()
 	btnInsert.OnEvent("Click", InsertIntoTargetAndClose.Bind(dlg, e, target))
 
-    btnRetry.OnEvent("Click", (*) => ( dlg.Destroy(), retryCallback() ))
-    btnClose.OnEvent("Click", (*) => dlg.Destroy())
+    btnRetry.OnEvent("Click", (*) => ( destroy_and_clear(), retryCallback() ))
+    btnClose.OnEvent("Click", destroy_and_clear)
+
+    dlg.OnEvent("Close", (*) => (g_active_popup_dlg := ""))
+    dlg.OnEvent("Escape", destroy_and_clear)
 
     dlg.Show()
     btnClose.Focus()
@@ -463,7 +470,12 @@ InsertLastResponse(dlg, target, *) {
     CleanupChatSession(dlg)
 }
 
-ShowChatResponsePopup(title, body, retryCallback) {
+ShowChatResponsePopup(title, body, retryCallback, isNewChat := false) {
+    global g_active_popup_dlg
+    if (IsObject(g_active_popup_dlg)) {
+        try g_active_popup_dlg.Destroy()
+    }
+
     global g_ChatHistoryFile, g_LastSelection, g_LastAction
     
     if (g_ChatHistoryFile != "" && FileExist(g_ChatHistoryFile)) {
@@ -471,17 +483,24 @@ ShowChatResponsePopup(title, body, retryCallback) {
     }
     
     g_ChatHistoryFile := A_Temp . "\AiChatHistory_" . A_TickCount . ".tmp"
-    user_turn := "YOU: " . g_LastAction["system_content"]
-    
-    if (Trim(g_LastSelection) != "") {
-        user_turn .= "`r`n" . g_LastSelection
+    initial_history := ""
+
+    if (!isNewChat) {
+        user_turn := "YOU: " . g_LastAction["system_content"]
+        
+        if (Trim(g_LastSelection) != "") {
+            user_turn .= "`r`n" . g_LastSelection
+        }
+        
+        initial_history := user_turn . "`r`n`r`n"
+        initial_history .= "ASSISTANT: " . NormalizeWebhookText(body) . "`r`n`r`n"
+        FileAppend(initial_history, g_ChatHistoryFile, "UTF-8")
+    } else {
+        FileAppend("", g_ChatHistoryFile, "UTF-8")
     }
     
-    initial_history := user_turn . "`r`n`r`n"
-    initial_history .= "ASSISTANT: " . NormalizeWebhookText(body) . "`r`n`r`n"
-    FileAppend(initial_history, g_ChatHistoryFile, "UTF-8")
-    
-    dlg := Gui("+AlwaysOnTop -MinimizeBox +Resize -MaximizeBox", title)
+    dlg := Gui("+Resize", title)
+    g_active_popup_dlg := dlg
     dlg.SetFont("s11", "Segoe UI")
     chatDisplay := dlg.AddEdit("w800 r25 ReadOnly Wrap VScroll", initial_history)
     ControlSend("{End}",, chatDisplay)
@@ -493,31 +512,25 @@ ShowChatResponsePopup(title, body, retryCallback) {
     userInput.GetPos(&ux, &uy, &uw, &uh)
     y := uy + uh + 14
     
-    ; Button distribution calculations - use full window width
-    numButtons := 4
+    ; Button settings
     outer_margin := 10
-    inner_gap := 5
+    btnW := 100
+    btnH := 30
+    
     dlg.GetClientPos(,, &window_width, &window_height)
-    total_width := window_width  ; Use full window width instead of input width
-    available_width := total_width - (2 * outer_margin) - ((numButtons - 1) * inner_gap)
-    btnW := available_width // numButtons  ; Integer division for equal button widths
-    
-    ; Create buttons with calculated positions and consistent height
-    btnHeight := 28
-    btnCopy   := dlg.AddButton(Format("x{} y{} w{} h{}", outer_margin + 0*(btnW+inner_gap), y, btnW, btnHeight), "📋 Copy")
-    btnInsert := dlg.AddButton(Format("x{} y{} w{} h{}", outer_margin + 1*(btnW+inner_gap), y, btnW, btnHeight), "📥 Insert")
-    btnRetry  := dlg.AddButton(Format("x{} y{} w{} h{}", outer_margin + 2*(btnW+inner_gap), y, btnW, btnHeight), "🔄 Try Again")
-    btnClose  := dlg.AddButton(Format("x{} y{} w{} h{}", outer_margin + 3*(btnW+inner_gap), y, btnW, btnHeight), "✖ Close")
-    
-    btnClose.Opt("+Default")
+
+    ; Create buttons with fixed size and aligned positions
+    btnCopy   := dlg.AddButton(Format("x{} y{} w{} h{}", outer_margin, y, btnW, btnH), "📋 Copy")
+    btnClose  := dlg.AddButton(Format("x{} y{} w{} h{}", window_width - btnW - outer_margin, y, btnW, btnH), "✖ Close")
     
     target := SnapshotTarget()
     btnSend.OnEvent("Click", SendFollowUpToWebhook.Bind(dlg, chatDisplay, userInput, g_LastAction))
-    btnCopy.OnEvent("Click", (*) => (A_Clipboard := chatDisplay.Value, Notify("Copied."), CleanupChatSession(dlg)))
-    btnInsert.OnEvent("Click", InsertLastResponse.Bind(dlg, target))
-    btnRetry.OnEvent("Click", (*) => ( CleanupChatSession(dlg), retryCallback() ))
-    btnClose.OnEvent("Click", (*) => CleanupChatSession(dlg))
-    dlg.OnEvent("Close", (*) => CleanupChatSession(dlg))
+    btnCopy.OnEvent("Click", (*) => (A_Clipboard := chatDisplay.Value, Notify("Copied.")))
+    
+    cleanup_and_close := (*) => (g_active_popup_dlg := "", CleanupChatSession(dlg))
+    btnClose.OnEvent("Click", cleanup_and_close)
+    dlg.OnEvent("Close", cleanup_and_close)
+    dlg.OnEvent("Escape", cleanup_and_close)
     
     ; Handle window resize to redistribute buttons
     dlg.OnEvent("Size", ResizeHandler)
@@ -526,22 +539,30 @@ ShowChatResponsePopup(title, body, retryCallback) {
         if (MinMax == -1) ; Minimized
             return
             
-        ; Resize chat display and user input
-        chatDisplay.Move(,, Width - 20)
-        userInput.Move(,, Width - 20)
+        ; --- Vertical Resizing ---
+        userInput.GetPos(,,,&uh)
+        btnCopy.GetPos(,,,&bh)
         
-        ; Recalculate button positions using full window width
+        ; Calculate total height of controls below the main chat display
+        fixed_v_space := 10 + uh + 14 + bh + 15 ; gap-above-input + input-h + gap-above-buttons + button-h + bottom-margin
+        new_chat_height := Height - fixed_v_space
+        
+        if (new_chat_height < 50) ; Prevent display from becoming too small
+            new_chat_height := 50
+
+        ; Resize chat display and move controls below it
+        chatDisplay.Move(,, Width - 20, new_chat_height)
+        
+        chatDisplay.GetPos(&cdX, &cdY, &cdW, &cdH)
+        userInput.Move(, cdY + cdH + 10, Width - 20)
+
+        ; --- Horizontal Button Repositioning ---
         userInput.GetPos(&ux, &uy, &uw, &uh)
-        new_y := uy + uh + 14
+        new_button_y := uy + uh + 14
+        btnCopy.GetPos(,,&btnW,)
         
-        new_available_width := Width - (2 * outer_margin) - ((numButtons - 1) * inner_gap)
-        new_btnW := new_available_width // numButtons
-        
-        ; Update button positions and widths with consistent height
-        btnCopy.Move(outer_margin + 0*(new_btnW+inner_gap), new_y, new_btnW, btnHeight)
-        btnInsert.Move(outer_margin + 1*(new_btnW+inner_gap), new_y, new_btnW, btnHeight)
-        btnRetry.Move(outer_margin + 2*(new_btnW+inner_gap), new_y, new_btnW, btnHeight)
-        btnClose.Move(outer_margin + 3*(new_btnW+inner_gap), new_y, new_btnW, btnHeight)
+        btnCopy.Move(outer_margin, new_button_y)
+        btnClose.Move(Width - btnW - outer_margin, new_button_y)
     }
     
     dlg.Show()
@@ -560,12 +581,7 @@ SendActionToWebhook(action, sel) {
         return
     }
 
-    payload := ""
-    if (action["key"] = "custom_prompt") {
-        payload := "You are a helpful assistant. Your answer must be simple text, no markdown, no html, just pure simple text. Answer the following user prompt.`r`n`r`nPROMPT: " . action["system_content"]
-    } else {
-        payload := "You are a helpful assistant. Your answer must be simple text, no markdown, no html, just pure simple text. Fulfill the user's request based on the following prompt and text.`r`n`r`nPROMPT: " . action["system_content"] . "`r`n`r`nTEXT:`r`n" . sel
-    }
+    payload := "You are a helpful assistant. Your answer must be simple text, no markdown, no html, just pure simple text. Fulfill the user's request based on the following prompt and text.`r`n`r`nPROMPT: " . action["system_content"] . "`r`n`r`nTEXT:`r`n" . sel
 
     json := '{'
         . '"contents":[{"parts":[{"text":"' . JsonEscape(payload) . '"}]}]'
@@ -586,11 +602,7 @@ SendActionToWebhook(action, sel) {
         
         retryCallback := (*) => SendActionToWebhook(action, sel)
 
-        if (action["key"] = "custom_prompt") {
-            ShowChatResponsePopup(action["name"], out, retryCallback)
-        } else {
-            ShowSimpleResponsePopup(action["name"], out, retryCallback)
-        }
+        ShowSimpleResponsePopup(action["name"], out, retryCallback)
 
         if g_Config.Settings["show_notification"]
             Notify("Done (" resp.status ").")
