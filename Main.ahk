@@ -20,6 +20,11 @@ SetWorkingDir A_ScriptDir ; Ensure a consistant starting directory.
 TraySetIcon("Icon.ico")
 A_IconTip := "My Assistant"
 
+; --- Tray Menu ---
+A_TrayMenu.Delete()
+A_TrayMenu.Add("Reload", (*) => Reload())
+A_TrayMenu.Add("Exit", (*) => ExitApp())
+
 ; ------------------------------------------------------------------------------------------
 ; Include Our Scripts
 ; ------------------------------------------------------------------------------------------
