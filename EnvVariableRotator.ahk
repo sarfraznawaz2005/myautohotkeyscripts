@@ -99,12 +99,12 @@ class EnvironmentVariableRotator {
 
                 if (this.notify) {
                     TrayTip(this.env_var . " set to: " . value_to_set, "Environment Variable Rotated", 1)
-                    SetTimer(() => TrayTip(), -5000)
+                    SetTimer(() => TrayTip(), -1000)
                 }
             } catch as e {
                 ;this.Log("Failed to set environment variable: " . e.Message)
                 TrayTip("Rotation Failed", "Could not set " . this.env_var, 3)
-                SetTimer(() => TrayTip(), -5000)
+                SetTimer(() => TrayTip(), -3000)
             }
             this.current_index := (this.current_index >= this.values.Length) ? 1 : this.current_index + 1
         }

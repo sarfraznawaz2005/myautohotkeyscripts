@@ -6,7 +6,7 @@
 ; Logging: errors.log and debug.log in script directory. Logs are deleted on startup.
 
 ; ---- Constants ----
-CHECK_INTERVAL_MS := 60 * 60 * 1000  ; 1 hour
+CHECK_INTERVAL_MS := 5 * 60 * 60 * 1000 ; 5 hours
 CONFIG_FILE := A_ScriptDir "\UpdateChecker.ini"
 
 Timestamp() {
@@ -118,7 +118,7 @@ LoadAppsFromConfig(path) {
   ; Filter out completely empty entries
   valid := []
   for app in apps {
-    if (app["name"] != "" || app["check_command"] != "" || app["install_command"] != "" || app["version"] != "")
+    if (app["name"] != "" || app["current_version_command"] != "" || app["check_command"] != "" || app["install_command"] != "")
       valid.Push(app)
   }
   return valid
@@ -127,12 +127,10 @@ LoadAppsFromConfig(path) {
 MapToApp(m) {
   app := Map(
     "name", m.Has("name") ? m["name"] : "",
-    "version_text", m.Has("version") ? m["version"] : "",
-    "version", "",
+    "current_version_command", m.Has("current_version_command") ? m["current_version_command"] : "",
     "check_command", m.Has("check_command") ? m["check_command"] : "",
     "install_command", m.Has("install_command") ? m["install_command"] : ""
   )
-  app["version"] := ExtractVersionNumber(app["version_text"])
   return app
 }
 
@@ -141,7 +139,7 @@ SaveAppsToConfig(apps, path) {
   for app in apps {
     out .= "[apps]`r`n"
     out .= Format("name={1}`r`n", app["name"])
-    out .= Format("version={1}`r`n", app["version"])
+    out .= Format("current_version_command={1}`r`n", app["current_version_command"])
     out .= Format("check_command={1}`r`n", app["check_command"])
     out .= Format("install_command={1}`r`n`r`n", app["install_command"])
   }
@@ -159,14 +157,14 @@ CreateDefaultApps() {
   return [
     Map(
       "name", "Gemini CLI",
-      "version", "0.2.1",
-      "check_command", "gemini --version",
+      "current_version_command", "gemini --version",
+      "check_command", "npm show @google/gemini-cli version",
       "install_command", "npm install -g @google/gemini-cli"
     ),
     Map(
       "name", "OpenAI Codex",
-      "version", "0.25.0",
-      "check_command", "codex --version",
+      "current_version_command", "codex --version",
+      "check_command", "npm show @openai/codex version",
       "install_command", "npm install -g @openai/codex"
     )
   ]
@@ -174,35 +172,43 @@ CreateDefaultApps() {
 
 ; ---- Update Logic ----
 CheckAppUpdate(app) {
-  if (app["name"] = "" || app["check_command"] = "") {
+  if (app["name"] = "" || app["check_command"] = "" || app["current_version_command"] = "") {
     return Map("updated", false, "hasUpdate", false, "message", "Invalid app config")
   }
 
-  res := RunAndCapture(Format("cmd.exe /C {1}", app["check_command"]))
-  if (res["code"] != 0) {
-    return Map("updated", false, "hasUpdate", false, "message", "Check command failed", "ignored", true)
+  ; Get currently installed version
+  res_current := RunAndCapture(app["current_version_command"])
+  if (res_current["code"] != 0) {
+    return Map("updated", false, "hasUpdate", false, "message", "Current version command failed", "ignored", true)
   }
-
-  installed_text := Trim(res["out"])
+  installed_text := Trim(res_current["out"])
   installed_ver := ExtractVersionNumber(installed_text)
   if (installed_ver = "") {
-    return Map("updated", false, "hasUpdate", false, "message", "Installed version ignored", "ignored", true)
+    return Map("updated", false, "hasUpdate", false, "message", "Installed version not found or ignored", "ignored", true)
   }
-
   if (IsPreRelease(installed_text)) {
     return Map("updated", false, "hasUpdate", false, "message", "Installed is pre-release", "ignored", true)
   }
 
-  latest := app["version"]  ; already numeric
-  if (latest = "") {
-    return Map("updated", false, "hasUpdate", false, "message", "No latest version in config", "ignored", true)
+  ; Get latest available version
+  res_latest := RunAndCapture(app["check_command"])
+  if (res_latest["code"] != 0) {
+    return Map("updated", false, "hasUpdate", false, "message", "Check command failed for latest version", "ignored", true)
+  }
+  latest_text := Trim(res_latest["out"])
+  latest_ver := ExtractVersionNumber(latest_text)
+  if (latest_ver = "") {
+    return Map("updated", false, "hasUpdate", false, "message", "Latest version not found or ignored", "ignored", true)
+  }
+  if (IsPreRelease(latest_text)) {
+    return Map("updated", false, "hasUpdate", false, "message", "Latest is pre-release", "ignored", true)
   }
 
-  cmp := CompareVersions(installed_ver, latest)
+  cmp := CompareVersions(installed_ver, latest_ver)
   if (cmp < 0) {
-    return Map("updated", false, "hasUpdate", true, "installed", installed_ver, "latest", latest)
+    return Map("updated", false, "hasUpdate", true, "installed", installed_ver, "latest", latest_ver)
   } else {
-    return Map("updated", false, "hasUpdate", false, "installed", installed_ver, "latest", latest)
+    return Map("updated", false, "hasUpdate", false, "installed", installed_ver, "latest", latest_ver)
   }
 }
 
@@ -210,7 +216,7 @@ InstallUpdate(app) {
   if (app["install_command"] = "") {
     return false
   }
-  res := RunAndCapture(Format("cmd.exe /C {1}", app["install_command"]), true)
+  res := RunAndCapture(app["install_command"], true)
   if (res["code"] != 0) {
     return false
   }
@@ -225,29 +231,17 @@ CheckNow(*) {
       MsgBox("No apps configured.")
       return
     }
-    changed := false
     for idx, app in apps {
       res := CheckAppUpdate(app)
       if res["hasUpdate"] {
-        resp := MsgBox(Format("Update available for {1}.`nInstalled: {2}`nLatest: {3}`nInstall now?", app["name"], res["installed"], res["latest"]), "Update Available", 0x4) ; Yes/No
+        message := Format("Update available for {1}.`nInstalled: {2}`nLatest: {3}`nInstall now?", app["name"], res["installed"], res["latest"])
+        resp := MsgBox(message, "Update Available", 0x4) ; Yes/No
         if (resp = "Yes") {
-          if InstallUpdate(app) {
-            ; Re-check version after install to refresh
-            res2 := RunAndCapture(Format("cmd.exe /C {1}", app["check_command"]))
-            installed_after := ExtractVersionNumber(Trim(res2["out"]))
-          }
+          InstallUpdate(app)
         }
       }
-      ; Normalize and persist numeric-only version back to config when needed
-      if (app["version_text"] != "" && app["version_text"] != app["version"]) {
-        changed := true
-      }
-    }
-    if changed {
-      SaveAppsToConfig(apps, CONFIG_FILE)
     }
   } catch as e {
-    
   }
 }
 
@@ -257,3 +251,6 @@ try {
   SetTimer(CheckNow, CHECK_INTERVAL_MS)
 } catch as e {
 }
+
+; Check at startup too
+CheckNow()

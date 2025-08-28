@@ -10,7 +10,7 @@ ShowError(e, *) {
     MsgBox("An error occurred:`n`n"
         . "File: " e.File "`n"
         . "Line: " e.Line "`n"
-        . "Message: " e.Message, "Script Error", "IconError")
+        . "Message: " e.Message, "Script Error")
     return true ; Suppress default dialog
 }
 
@@ -30,3 +30,4 @@ A_IconTip := "My Assistant"
 #Include PHPCodeRunner.ahk
 #Include ShortCuts.ahk
 #Include UpdateChecker.ahk
+#Include dpi.ahk
