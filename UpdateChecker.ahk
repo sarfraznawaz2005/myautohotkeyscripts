@@ -7,7 +7,7 @@
 
 ; ---- Constants ----
 CHECK_INTERVAL_MS := 60 * 60 * 1000  ; 1 hour
-CONFIG_FILE := A_ScriptDir "\app_update_check.ini"
+CONFIG_FILE := A_ScriptDir "\UpdateChecker.ini"
 
 Timestamp() {
   return A_Now
