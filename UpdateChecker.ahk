@@ -234,7 +234,7 @@ CheckNow(*) {
     for idx, app in apps {
       res := CheckAppUpdate(app)
       if res["hasUpdate"] {
-        message := Format("Update available for {1}.`nInstalled: {2}`nLatest: {3}`nInstall now?", app["name"], res["installed"], res["latest"])
+        message := Format("{1}.`n`nInstalled:  {2}`nAvailable: {3}`n`nDo you want to install?", app["name"], res["installed"], res["latest"])
         resp := MsgBox(message, "Update Available", 0x4) ; Yes/No
         if (resp = "Yes") {
           InstallUpdate(app)
