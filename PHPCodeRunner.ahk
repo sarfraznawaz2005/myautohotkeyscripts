@@ -10,6 +10,7 @@
 ; Configuration - Set your PHP binary path here
 PHP_BINARY_PATH := "php"
 
+#SingleInstance Force
 
 ; Hotkey: Ctrl+Shift+Space
 ^+p:: {

@@ -1,3 +1,5 @@
+#SingleInstance Force
+
 ; ENVIRONMENT VARIABLE ROTATIONS SCRIPT
 ; See EnvVariableRotator.ini
 

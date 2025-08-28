@@ -29,3 +29,4 @@ A_IconTip := "My Assistant"
 #Include AiContextMenu.ahk
 #Include PHPCodeRunner.ahk
 #Include ShortCuts.ahk
+#Include UpdateChecker.ahk

@@ -5,6 +5,7 @@
 ; Menu actions create a composed prompt and selected text, then show a small UI
 ; to Copy / Paste / optionally Send to a webhook (if configured).
 
+#SingleInstance Force
 
 ; ---------- Paths & Globals ----------
 global g_Config := {}
