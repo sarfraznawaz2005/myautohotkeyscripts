@@ -25,8 +25,8 @@
 	"dpi_500",11	
 	*/
 
-    setDPI(monitorPath, 0)
-    ;Sleep 1000
+    setDPI(monitorPath, 4)
+    Sleep 1000
     setDPI(monitorPath, -1)
     
     return
