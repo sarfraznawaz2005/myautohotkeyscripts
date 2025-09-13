@@ -16,7 +16,8 @@ global g_DebounceMs := 200
 global g_SelCheckInProgress := false
 global g_ConfigPath := A_ScriptDir "\AiContextMenu.ini"
 global g_ChatHistoryFile := ""
-global g_active_popup_dlg := ""
+global g_active_popup_dlg := ""  ; For simple response popup
+global g_active_chat_dlg := ""   ; For chat popup
 global g_LastAction := {}
 global g_DefaultActions := [
     Map("key","autocomplete","name","Autocomplete","shortcut","1","system_content","Continue the text intelligently, maintaining tone and context:"),
@@ -25,6 +26,11 @@ global g_DefaultActions := [
     Map("key","summarize","name","Summarize","shortcut","4","system_content","Summarize the following text:"),
     Map("key","keypoints","name","List Key Points","shortcut","5","system_content","List the key points as concise bullets:")
 ]
+
+; Global variables for chat dialog message handling
+global g_CurrentChatDlg := ""
+global g_CurrentUserInput := ""
+global g_CurrentBtnSend := ""
 
 ; ---------- Startup ----------
 
@@ -292,6 +298,18 @@ OnActionChosen(action, *) {
 }
 
 OnChatChosen(*) {
+    global g_active_chat_dlg
+    
+    ; If a chat dialog is already open, focus it instead of creating a new one
+    if (IsObject(g_active_chat_dlg) && g_active_chat_dlg.hwnd) {
+        try {
+            g_active_chat_dlg.Show()
+            return
+        } catch {
+            ; If there's an error showing the existing dialog, continue to create a new one
+        }
+    }
+    
     sel := GetSelectedText()
 
     if (Trim(sel) != "") {
@@ -302,7 +320,17 @@ OnChatChosen(*) {
 }
 
 SendInitialChatMessage(user_message) {
-    global g_Config, g_LastAction, g_LastSelection
+    global g_Config, g_LastAction, g_LastSelection, g_active_chat_dlg
+    
+    ; If a chat dialog is already open, focus it instead of creating a new one
+    if (IsObject(g_active_chat_dlg) && g_active_chat_dlg.hwnd) {
+        try {
+            g_active_chat_dlg.Show()
+            return
+        } catch {
+            ; If there's an error showing the existing dialog, continue to create a new one
+        }
+    }
 
     url     := Trim(g_Config.Webhook["url"], ' "')
     method  := g_Config.Webhook["method"]
@@ -395,12 +423,35 @@ ShowSimpleResponsePopup(title, body, retryCallback) {
 }
 
 CleanupChatSession(gui, *) {
-    global g_ChatHistoryFile
+    global g_ChatHistoryFile, g_active_chat_dlg
     if (g_ChatHistoryFile != "" && FileExist(g_ChatHistoryFile)) {
         try FileDelete(g_ChatHistoryFile)
     }
     g_ChatHistoryFile := ""
+    g_active_chat_dlg := ""
     gui.Destroy()
+}
+
+; Global message handler for chat dialogs
+Global_WM_KEYDOWN(wParam, lParam, msg, hwnd) {
+    ; This will be dynamically set when a chat dialog is created
+    global g_CurrentChatDlg, g_CurrentUserInput, g_CurrentBtnSend
+    
+    ; Check if key pressed inside our userInput control
+    if (IsObject(g_CurrentUserInput) && hwnd && hwnd = g_CurrentUserInput.Hwnd && wParam = 13) { ; Enter key
+        ; Check if the dialog still exists
+        if (IsObject(g_CurrentChatDlg) && g_CurrentChatDlg.hwnd) {
+            ; Additional check to ensure the control is still valid
+            try {
+                ; Simulate button click
+                SendMessage(0x00F5, 0, 0, g_CurrentBtnSend.hwnd) ; BM_CLICK message
+            } catch {
+                ; If control is destroyed, silently ignore
+                return 0
+            }
+        }
+        return 0 ; block Enter from making newline
+    }
 }
 
 SendFollowUpToWebhook(gui, chatDisplay, userInput, action, *) {
@@ -456,6 +507,9 @@ SendFollowUpToWebhook(gui, chatDisplay, userInput, action, *) {
         chatDisplay.Value := FileRead(g_ChatHistoryFile, "UTF-8")
         SendMessage(0x0115, 7, 0, chatDisplay.Hwnd)  ; WM_VSCROLL, SB_BOTTOM
     }
+    
+    ; Return focus to the input field
+    try userInput.Focus()
 }
 
 InsertLastResponse(dlg, target, *) {
@@ -472,9 +526,16 @@ InsertLastResponse(dlg, target, *) {
 }
 
 ShowChatResponsePopup(title, body, retryCallback, isNewChat := false) {
-    global g_active_popup_dlg
-    if (IsObject(g_active_popup_dlg)) {
-        try g_active_popup_dlg.Destroy()
+    global g_active_chat_dlg, g_CurrentChatDlg, g_CurrentUserInput, g_CurrentBtnSend
+    ; If a dialog is already open, destroy it first
+    if (IsObject(g_active_chat_dlg)) {
+        try {
+            ; Unregister the message handler before destroying
+            OnMessage(0x100, Global_WM_KEYDOWN, 0)
+            g_active_chat_dlg.Destroy()
+        } catch {
+            ; Ignore any errors during destruction
+        }
     }
 
     global g_ChatHistoryFile, g_LastSelection, g_LastAction
@@ -501,13 +562,19 @@ ShowChatResponsePopup(title, body, retryCallback, isNewChat := false) {
     }
     
     dlg := Gui("+Resize", title)
-    g_active_popup_dlg := dlg
+    g_active_chat_dlg := dlg
+    g_CurrentChatDlg := dlg  ; For message handler
     dlg.SetFont("s11", "Segoe UI")
     chatDisplay := dlg.AddEdit("w800 r25 ReadOnly Wrap VScroll", initial_history)
     ControlSend("{End}",, chatDisplay)
     
-    userInput := dlg.AddEdit("w800 y+10 h23", "")
+    userInput := dlg.AddEdit("w800 y+10 h23 Multi -VScroll -Wrap", "")
+    g_CurrentUserInput := userInput  ; For message handler
     btnSend := dlg.AddButton("Hidden Default", "Send")
+    g_CurrentBtnSend := btnSend  ; For message handler
+    
+    ; Hook WM_KEYDOWN (0x100)
+    OnMessage(0x100, Global_WM_KEYDOWN)
     
     ; Get user input position and dimensions
     userInput.GetPos(&ux, &uy, &uw, &uh)
@@ -528,9 +595,9 @@ ShowChatResponsePopup(title, body, retryCallback, isNewChat := false) {
     btnSend.OnEvent("Click", SendFollowUpToWebhook.Bind(dlg, chatDisplay, userInput, g_LastAction))
     btnCopy.OnEvent("Click", (*) => (A_Clipboard := chatDisplay.Value, Notify("Copied.")))
     
-    cleanup_and_close := (*) => (g_active_popup_dlg := "", CleanupChatSession(dlg))
+    cleanup_and_close := (*) => (g_active_chat_dlg := "", OnMessage(0x100, Global_WM_KEYDOWN, 0), CleanupChatSession(dlg))
     btnClose.OnEvent("Click", cleanup_and_close)
-    dlg.OnEvent("Close", cleanup_and_close)
+    dlg.OnEvent("Close", (*) => (g_active_chat_dlg := "", OnMessage(0x100, Global_WM_KEYDOWN, 0)))
     dlg.OnEvent("Escape", cleanup_and_close)
     
     ; Handle window resize to redistribute buttons
@@ -718,10 +785,20 @@ ShowProgress(msg := "Please wait...") {
     global gProgress
     if IsObject(gProgress)
         return
-    g := Gui("+AlwaysOnTop -SysMenu +ToolWindow")
-    g.SetFont("s10", "Segoe UI")
-    g.MarginX := 14, g.MarginY := 12
-    g.Add("Text", "w260", msg)
+    g := Gui("+AlwaysOnTop -SysMenu +ToolWindow -Caption")
+    g.SetFont("s10 bold", "Segoe UI")
+    g.MarginX := 1, g.MarginY := 1
+    
+    ; Create a dark border by using the window background as the border color
+    g.BackColor := "0x808080"  ; Dark gray border
+    
+    ; Create a panel for the yellow background inside the border
+    bgPanel := g.Add("Text", "w220 h18 Background0xFFFFE0", "")  ; Light yellow background
+    
+    ; Add text on top, centered both horizontally and vertically
+    txt := g.Add("Text", "xp+1 yp+1 w218 h16 Center Background0xFFFFE0", msg)
+    txt.Opt("+0x200")  ; SS_CENTERIMAGE for vertical centering
+    
     g.Title := "Working"
     g.Show("AutoSize Center")
     gProgress := g

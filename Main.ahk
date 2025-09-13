@@ -10,7 +10,7 @@ ShowError(e, *) {
     MsgBox("An error occurred:`n`n"
         . "File: " e.File "`n"
         . "Line: " e.Line "`n"
-        . "Message: " e.Message, "Script Error")
+        . "Message: " e.Message, "Script Error", "Iconx")
     return true ; Suppress default dialog
 }
 
