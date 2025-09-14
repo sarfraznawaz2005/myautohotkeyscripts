@@ -18,6 +18,7 @@ global g_ConfigPath := A_ScriptDir "\AiContextMenu.ini"
 global g_ChatHistoryFile := ""
 global g_active_popup_dlg := ""  ; For simple response popup
 global g_active_chat_dlg := ""   ; For chat popup
+global g_active_notification := ""  ; For custom notifications
 global g_LastAction := {}
 global g_DefaultActions := [
     Map("key","autocomplete","name","Autocomplete","shortcut","1","system_content","Continue the text intelligently, maintaining tone and context:"),
@@ -27,10 +28,28 @@ global g_DefaultActions := [
     Map("key","keypoints","name","List Key Points","shortcut","5","system_content","List the key points as concise bullets:")
 ]
 
+; ---------- UI Styling Variables ----------
+global g_UI := Map()
+g_UI["PrimaryColor"] := "0x4285F4"     ; Google blue
+g_UI["SecondaryColor"] := "0x34A853"  ; Google green
+g_UI["AccentColor"] := "0xEA4335"     ; Google red
+g_UI["WarningColor"] := "0xFBBC05"    ; Google yellow
+g_UI["BackgroundColor"] := "0xF8F9FA"
+g_UI["TextColor"] := "0x202124"
+g_UI["BorderColor"] := "0xDADCE0"
+g_UI["ButtonPrimary"] := "0x4285F4"
+g_UI["ButtonSecondary"] := "0xF1F3F4"
+g_UI["ButtonDanger"] := "0xEA4335"
+g_UI["UserMessageColor"] := "0xE8F0FE"
+g_UI["AssistantMessageColor"] := "0xF8F9FA"
+g_UI["Font"] := "Segoe UI"
+g_UI["FontSize"] := "s10"
+
 ; Global variables for chat dialog message handling
 global g_CurrentChatDlg := ""
 global g_CurrentUserInput := ""
 global g_CurrentBtnSend := ""
+global gSpinnerTimer := ""  ; For progress dialog spinner timer
 
 ; ---------- Startup ----------
 
@@ -112,6 +131,33 @@ BuildMenu() {
 
         ; Add number prefix to menu item
         numberedTitle := "&" . itemNumber . ". " . title
+        
+        ; Add icon based on action type
+        iconChar := ""
+        actionName := StrLower(a["name"])
+        if (InStr(actionName, "complete") || InStr(actionName, "write") || InStr(actionName, "auto")) {
+            iconChar := "✍ "
+        } else if (InStr(actionName, "improve") || InStr(actionName, "better") || InStr(actionName, "enhance")) {
+            iconChar := "✨ "
+        } else if (InStr(actionName, "explain")) {
+            iconChar := "❓ "
+        } else if (InStr(actionName, "summarize") || InStr(actionName, "brief")) {
+            iconChar := "📋 "
+        } else if (InStr(actionName, "key") || InStr(actionName, "point")) {
+            iconChar := "🔑 "
+        } else if (InStr(actionName, "translate")) {
+            iconChar := "🌐 "
+        } else if (InStr(actionName, "grammar") || InStr(actionName, "spelling") || InStr(actionName, "fix")) {
+            iconChar := "🔧 "
+        } else if (InStr(actionName, "answer") || InStr(actionName, "question")) {
+            iconChar := "❓ "
+        } else if (InStr(actionName, "detailed") || InStr(actionName, "detail")) {
+            iconChar := "📋 "
+        } else {
+            iconChar := "⚡ "
+        }
+        
+        numberedTitle := iconChar . numberedTitle
         g_Menu.Add(numberedTitle, OnActionChosen.Bind(a))
 
         ; Store action for hotkey access
@@ -132,17 +178,41 @@ BuildMenu() {
                 continue
             a := action
             title := Trim(a["name"])
-            g_Menu.Add(title, OnActionChosen.Bind(a))
+            
+            ; Add icon based on action type
+            iconChar := ""
+            actionName := StrLower(a["name"])
+            if (InStr(actionName, "complete") || InStr(actionName, "write") || InStr(actionName, "auto")) {
+                iconChar := "✍ "
+            } else if (InStr(actionName, "improve") || InStr(actionName, "better") || InStr(actionName, "enhance")) {
+                iconChar := "✨ "
+            } else if (InStr(actionName, "explain")) {
+                iconChar := "❓ "
+            } else if (InStr(actionName, "summarize") || InStr(actionName, "brief")) {
+                iconChar := "📋 "
+            } else if (InStr(actionName, "key") || InStr(actionName, "point")) {
+                iconChar := "🔑 "
+            } else if (InStr(actionName, "translate")) {
+                iconChar := "🌐 "
+            } else if (InStr(actionName, "grammar") || InStr(actionName, "spelling") || InStr(actionName, "fix")) {
+                iconChar := "🔧 "
+            } else if (InStr(actionName, "answer") || InStr(actionName, "question")) {
+                iconChar := "❓ "
+            } else if (InStr(actionName, "detailed") || InStr(actionName, "detail")) {
+                iconChar := "📋 "
+            } else {
+                iconChar := "⚡ "
+            }
+            
+            titledTitle := iconChar . title
+            g_Menu.Add(titledTitle, OnActionChosen.Bind(a))
             g_MenuItemCount++
         }
     }
 
     g_Menu.Add() ; Existing separator
-    customTitle := "&0. Chat"
+    customTitle := "💬 &0. Chat"
     g_Menu.Add(customTitle, OnChatChosen) ; New chat action
-    ;g_Menu.Add() ; New separator for the custom action
-    ;g_Menu.Add("Reload Config  (Ctrl+Alt+R)", ReloadConfig)
-    ;g_Menu.Add("Exit", (*) => ExitApp())
 }
 
 ; Handle numeric hotkeys when menu is shown
@@ -160,7 +230,7 @@ HandleMenuHotkey(key) {
 ReloadConfig(*) {
     LoadConfig()
     BuildMenu()
-    TrayTip("Configuration reloaded.", "SmartSelectMenu")
+    Notify("Configuration reloaded.", "success")
 }
 
 LoadConfig() {
@@ -284,12 +354,12 @@ OnActionChosen(action, *) {
 
     sel := GetSelectedText()
     if (!sel) {
-        MsgBox("No text selected.")
+        Notify("No text selected.", "warning")
         return
     }
     maxLen := g_Config.Settings["max_input_length"]
     if (maxLen > 0 && StrLen(sel) > maxLen) {
-        MsgBox("Selection exceeds max_input_length (" maxLen ").")
+        Notify("Selection exceeds max_input_length (" maxLen ").", "error")
         return
     }
     g_LastAction   := action
@@ -337,7 +407,7 @@ SendInitialChatMessage(user_message) {
     headers := g_Config.Webhook["headers"]
 
     if (!url) {
-        Notify("Webhook URL missing (see [webhook] in AiContextMenu.ini).")
+        Notify("Webhook URL missing (see [webhook] in AiContextMenu.ini).", "error")
         return
     }
 
@@ -379,31 +449,39 @@ InsertIntoTargetAndClose(dlg, editCtrl, target, *) {
 }
 
 ShowSimpleResponsePopup(title, body, retryCallback) {
-    global g_active_popup_dlg
+    global g_active_popup_dlg, g_UI
     if (IsObject(g_active_popup_dlg)) {
         try g_active_popup_dlg.Destroy()
     }
 
     body := NormalizeWebhookText(body)
 
-    dlg := Gui("+AlwaysOnTop -MinimizeBox", title)
+    dlg := Gui("+AlwaysOnTop -MinimizeBox +Border", title)
     g_active_popup_dlg := dlg
-    dlg.SetFont("s11", "Segoe UI")
+    dlg.SetFont(g_UI["FontSize"], g_UI["Font"])
+    
+    ; Set background color
+    dlg.BackColor := g_UI["BackgroundColor"]
 
     e := dlg.AddEdit("w800 r15 ReadOnly Wrap VScroll", body)
+    ; Style the edit control
+    e.Opt("+Border")
+    e.SetFont("s10", g_UI["Font"])
 
     e.GetPos(&ex, &ey, &ew, &eh)
-    margin := 12
-    y := ey + eh + 14
+    margin := 15
+    y := ey + eh + 20
     btnW := Floor((800 - margin*5) / 4)
     x0 := ex + margin
 
-    btnCopy   := dlg.AddButton(Format("x{} y{} w{}", x0 + 0*(btnW+margin), y, btnW), "📋 Copy")
-    btnInsert := dlg.AddButton(Format("x{} y{} w{}", x0 + 1*(btnW+margin), y, btnW), "📥 Insert")
-    btnRetry  := dlg.AddButton(Format("x{} y{} w{}", x0 + 2*(btnW+margin), y, btnW), "🔄 Try Again")
-    btnClose  := dlg.AddButton(Format("x{} y{} w{}", x0 + 3*(btnW+margin), y, btnW), "✖ Close")
+    ; Create buttons with improved styling
+    btnCopy   := dlg.AddButton(Format("x{} y{} w{} Background{}", x0 + 0*(btnW+margin), y, btnW, g_UI["ButtonSecondary"]), "📋 Copy")
+    btnInsert := dlg.AddButton(Format("x{} y{} w{} Background{}", x0 + 1*(btnW+margin), y, btnW, g_UI["ButtonPrimary"]), "📥 Insert")
+    btnRetry  := dlg.AddButton(Format("x{} y{} w{} Background{}", x0 + 2*(btnW+margin), y, btnW, g_UI["WarningColor"]), "🔄 Try Again")
+    btnClose  := dlg.AddButton(Format("x{} y{} w{} Background{}", x0 + 3*(btnW+margin), y, btnW, g_UI["ButtonSecondary"]), "✖ Close")
     
-    btnClose.Opt("+Default")
+    ; Make Insert the default action as it's most likely what users want
+    btnInsert.Opt("+Default")
 
     destroy_and_clear := (*) => (g_active_popup_dlg := "", dlg.Destroy())
 
@@ -418,8 +496,8 @@ ShowSimpleResponsePopup(title, body, retryCallback) {
     dlg.OnEvent("Close", (*) => (g_active_popup_dlg := ""))
     dlg.OnEvent("Escape", destroy_and_clear)
 
-    dlg.Show()
-    btnClose.Focus()
+    dlg.Show("w830")
+    btnInsert.Focus()
 }
 
 CleanupChatSession(gui, *) {
@@ -526,7 +604,7 @@ InsertLastResponse(dlg, target, *) {
 }
 
 ShowChatResponsePopup(title, body, retryCallback, isNewChat := false) {
-    global g_active_chat_dlg, g_CurrentChatDlg, g_CurrentUserInput, g_CurrentBtnSend
+    global g_active_chat_dlg, g_CurrentChatDlg, g_CurrentUserInput, g_CurrentBtnSend, g_UI
     ; If a dialog is already open, destroy it first
     if (IsObject(g_active_chat_dlg)) {
         try {
@@ -561,16 +639,25 @@ ShowChatResponsePopup(title, body, retryCallback, isNewChat := false) {
         FileAppend("", g_ChatHistoryFile, "UTF-8")
     }
     
-    dlg := Gui("+Resize", title)
+    dlg := Gui("+Resize +Border", title)
     g_active_chat_dlg := dlg
     g_CurrentChatDlg := dlg  ; For message handler
-    dlg.SetFont("s11", "Segoe UI")
+    dlg.SetFont(g_UI["FontSize"], g_UI["Font"])
+    dlg.BackColor := g_UI["BackgroundColor"]
+    
     chatDisplay := dlg.AddEdit("w800 r25 ReadOnly Wrap VScroll", initial_history)
+    chatDisplay.SetFont("s10", g_UI["Font"])
+    ; Add a subtle border to the chat display
+    chatDisplay.Opt("+Border")
     ControlSend("{End}",, chatDisplay)
     
-    userInput := dlg.AddEdit("w800 y+10 h23 Multi -VScroll -Wrap", "")
+    ; Add placeholder text to the input field
+    userInput := dlg.AddEdit("w800 y+10 h25 Multi -VScroll -Wrap", "")
+    userInput.SetFont("s10", g_UI["Font"])
     g_CurrentUserInput := userInput  ; For message handler
-    btnSend := dlg.AddButton("Hidden Default", "Send")
+    
+    ; Add visible Send button
+    btnSend := dlg.AddButton("yp-1 x+10 w80 Default Background" g_UI["ButtonPrimary"], "Send")
     g_CurrentBtnSend := btnSend  ; For message handler
     
     ; Hook WM_KEYDOWN (0x100)
@@ -578,22 +665,24 @@ ShowChatResponsePopup(title, body, retryCallback, isNewChat := false) {
     
     ; Get user input position and dimensions
     userInput.GetPos(&ux, &uy, &uw, &uh)
-    y := uy + uh + 14
+    y := uy + uh + 15
     
     ; Button settings
-    outer_margin := 10
+    outer_margin := 15
     btnW := 100
     btnH := 30
     
     dlg.GetClientPos(,, &window_width, &window_height)
 
-    ; Create buttons with fixed size and aligned positions
-    btnCopy   := dlg.AddButton(Format("x{} y{} w{} h{}", outer_margin, y, btnW, btnH), "📋 Copy")
-    btnClose  := dlg.AddButton(Format("x{} y{} w{} h{}", window_width - btnW - outer_margin, y, btnW, btnH), "✖ Close")
+    ; Create buttons with improved styling
+    btnCopy   := dlg.AddButton(Format("x{} y{} w{} h{} Background{}", outer_margin, y, btnW, btnH, g_UI["ButtonSecondary"]), "📋 Copy")
+    btnCopyLast := dlg.AddButton(Format("x{} y{} w{} h{} Background{}", outer_margin + btnW + 10, y, btnW, btnH, g_UI["ButtonSecondary"]), "📋 Copy Last")
+    btnClose  := dlg.AddButton(Format("x{} y{} w{} h{} Background{}", window_width - btnW - outer_margin, y, btnW, btnH, g_UI["ButtonSecondary"]), "✖ Close")
     
     target := SnapshotTarget()
     btnSend.OnEvent("Click", SendFollowUpToWebhook.Bind(dlg, chatDisplay, userInput, g_LastAction))
     btnCopy.OnEvent("Click", (*) => (A_Clipboard := chatDisplay.Value, Notify("Copied.")))
+    btnCopyLast.OnEvent("Click", (*) => CopyLastMessage(chatDisplay))
     
     cleanup_and_close := (*) => (g_active_chat_dlg := "", OnMessage(0x100, Global_WM_KEYDOWN, 0), CleanupChatSession(dlg))
     btnClose.OnEvent("Click", cleanup_and_close)
@@ -612,30 +701,63 @@ ShowChatResponsePopup(title, body, retryCallback, isNewChat := false) {
         btnCopy.GetPos(,,,&bh)
         
         ; Calculate total height of controls below the main chat display
-        fixed_v_space := 10 + uh + 14 + bh + 15 ; gap-above-input + input-h + gap-above-buttons + button-h + bottom-margin
+        fixed_v_space := 10 + uh + 15 + bh + 20 ; gap-above-input + input-h + gap-above-buttons + button-h + bottom-margin
         new_chat_height := Height - fixed_v_space
         
         if (new_chat_height < 50) ; Prevent display from becoming too small
             new_chat_height := 50
 
         ; Resize chat display and move controls below it
-        chatDisplay.Move(,, Width - 20, new_chat_height)
+        chatDisplay.Move(,, Width - 30, new_chat_height)
         
         chatDisplay.GetPos(&cdX, &cdY, &cdW, &cdH)
-        userInput.Move(, cdY + cdH + 10, Width - 20)
+        userInput.Move(15, cdY + cdH + 10, Width - 125)
+        btnSend.Move(Width - 95, cdY + cdH + 10, 80, 25)
 
         ; --- Horizontal Button Repositioning ---
         userInput.GetPos(&ux, &uy, &uw, &uh)
-        new_button_y := uy + uh + 14
+        new_button_y := uy + uh + 15
         btnCopy.GetPos(,,&btnW,)
         
         btnCopy.Move(outer_margin, new_button_y)
+        btnCopyLast.Move(outer_margin + btnW + 10, new_button_y)
         btnClose.Move(Width - btnW - outer_margin, new_button_y)
     }
     
-    dlg.Show()
+    dlg.Show("w830 h500")
     userInput.Focus()
     ControlSend("{End}",, chatDisplay)
+}
+
+CopyLastMessage(chatDisplay) {
+    global g_ChatHistoryFile
+    ; Read the chat history file
+    full_text := FileRead(g_ChatHistoryFile, "UTF-8")
+    
+    ; Extract the last assistant message (without the "ASSISTANT: " prefix)
+    last_response := ""
+    
+    ; Split the text by message delimiters to get individual messages
+    messages := StrSplit(full_text, "`r`n`r`n")
+    
+    ; Go through messages backwards to find the last assistant message
+    i := messages.Length
+    while (i >= 1) {
+        message := messages[i]
+        if (InStr(message, "ASSISTANT: ") == 1) {
+            ; Found the last assistant message, extract content after the prefix
+            last_response := Trim(SubStr(message, 12))  ; Remove "ASSISTANT: " prefix (11 chars)
+            break
+        }
+        i--
+    }
+    
+    if (last_response != "") {
+        A_Clipboard := last_response
+        Notify("Last message copied.")
+    } else {
+        Notify("No assistant message found.", "warning")
+    }
 }
 
 SendActionToWebhook(action, sel) {
@@ -645,7 +767,7 @@ SendActionToWebhook(action, sel) {
     headers := g_Config.Webhook["headers"]
 
     if (!url) {
-        Notify("Webhook URL missing (see [webhook] in AiContextMenu.ini).")
+        Notify("Webhook URL missing (see [webhook] in AiContextMenu.ini).", "error")
         return
     }
 
@@ -673,17 +795,12 @@ SendActionToWebhook(action, sel) {
         ShowSimpleResponsePopup(action["name"], out, retryCallback)
 
         if g_Config.Settings["show_notification"]
-            Notify("Done (" resp.status ").")
+            Notify("Done (" resp.status ").", "success")
     } else {
         retryCallback := (*) => SendActionToWebhook(action, sel)
         ShowSimpleResponsePopup(action["name"] " — Error " resp.status, resp.text, retryCallback)
-        Notify("Webhook error (" resp.status ").")
+        Notify("Webhook error (" resp.status ").", "error")
     }
-}
-
-Notify(msg) {
-    ToolTip(msg, A_ScreenWidth-400, 30, 20)
-    SetTimer(() => ToolTip("",,,20), -1500) ; auto-hide after 1.5s
 }
 
 JsonEscape(s) {
@@ -732,19 +849,55 @@ NormalizeWebhookText(s) {
 HttpSend(url, method, body, headers) {
     ShowProgress()
     try {
-        if !IsObject(headers)
-            headers := Map()
-        if !headers.Has("Content-Type")
-            headers["Content-Type"] := "application/json; charset=utf-8"
-
-        h := ComObject("WinHttp.WinHttpRequest.5.1")
-        h.Open(method, url, false)           ; synchronous
-        for k, v in headers
-            h.SetRequestHeader(k, v)
-        h.Send(body)
-
-        return { status: h.Status, text: h.ResponseText }
-
+        ; Try using MSXML2.XMLHTTP for better async support
+        try {
+            xhr := ComObject("MSXML2.XMLHTTP")
+            isMSXML := true
+        } catch {
+            ; Fallback to WinHttp.WinHttpRequest
+            xhr := ComObject("WinHttp.WinHttpRequest.5.1")
+            isMSXML := false
+        }
+        
+        if (isMSXML) {
+            ; MSXML2.XMLHTTP approach
+            xhr.open(method, url, true)  ; asynchronous
+            for k, v in headers
+                xhr.setRequestHeader(k, v)
+            xhr.send(body)
+            
+            ; Wait for response while allowing GUI to update
+            while xhr.readyState != 4
+                Sleep 50
+                
+            return { status: xhr.status, text: xhr.responseText }
+        } else {
+            ; WinHttp.WinHttpRequest approach with periodic GUI updates
+            xhr.Open(method, url, false)  ; synchronous
+            for k, v in headers
+                xhr.SetRequestHeader(k, v)
+            
+            ; Send the request in a separate thread-like approach
+            xhr.Send(body)
+            
+            ; While waiting for response, periodically yield to allow GUI updates
+            startTime := A_TickCount
+            while xhr.Status = 0 {  ; Status 0 means still loading
+                try {
+                    ; Try to access status to trigger update
+                    tempStatus := xhr.Status
+                } catch {
+                    ; Ignore errors during loading
+                }
+                Sleep 50  ; Yield to allow GUI updates
+                
+                ; Timeout after 30 seconds
+                if (A_TickCount - startTime > 30000)
+                    break
+            }
+            
+            return { status: xhr.Status, text: xhr.ResponseText }
+        }
     } catch as e {
         throw e
     } finally {
@@ -782,32 +935,65 @@ InsertIntoTarget(text, target) {
 global gProgress := 0
 
 ShowProgress(msg := "Please wait...") {
-    global gProgress
+    global gProgress, g_UI
     if IsObject(gProgress)
         return
-    g := Gui("+AlwaysOnTop -SysMenu +ToolWindow -Caption")
-    g.SetFont("s10 bold", "Segoe UI")
+    g := Gui("+AlwaysOnTop -SysMenu +ToolWindow -Caption +Border")
+    g.SetFont("s10 bold", g_UI["Font"])
     g.MarginX := 1, g.MarginY := 1
     
-    ; Create a dark border by using the window background as the border color
-    g.BackColor := "0x808080"  ; Dark gray border
+    ; Use our styled border color
+    g.BackColor := g_UI["BorderColor"]
     
-    ; Create a panel for the yellow background inside the border
-    bgPanel := g.Add("Text", "w220 h18 Background0xFFFFE0", "")  ; Light yellow background
+    ; Create a panel with our background color
+    bgPanel := g.Add("Text", "w250 h25 Background" g_UI["BackgroundColor"], "")
     
     ; Add text on top, centered both horizontally and vertically
-    txt := g.Add("Text", "xp+1 yp+1 w218 h16 Center Background0xFFFFE0", msg)
+    txt := g.Add("Text", "xp+1 yp+1 w248 h23 Center Background" g_UI["BackgroundColor"], msg)
     txt.Opt("+0x200")  ; SS_CENTERIMAGE for vertical centering
+    
+    ; Add a progress bar instead of character spinner
+    progress := g.Add("Progress", "xp yp+25 w248 h20 Background" g_UI["BackgroundColor"], 0)
+    
+    ; Simple animation for the progress bar
+    global gProgressCtrl := progress
+    global gProgressValue := 0
+    
+    ; Create a bound function for the timer
+    boundFunc := UpdateProgressBar.Bind(progress)
+    SetTimer(boundFunc, 100)
+    global gSpinnerTimer := boundFunc  ; Store the timer reference
+    
+    ; Create a bound function for the timer
+    boundFunc := UpdateProgressBar.Bind(progress)
+    SetTimer(boundFunc, 100)
+    global gSpinnerTimer := boundFunc  ; Store the timer reference
     
     g.Title := "Working"
     g.Show("AutoSize Center")
     gProgress := g
 }
 
+UpdateProgressBar(progress) {
+    global gProgressValue
+    ; Check if the control still exists before updating
+    try {
+        if (IsObject(progress) && progress.hwnd) {
+            gProgressValue := Mod(gProgressValue + 10, 101)  ; Cycle from 0 to 100
+            progress.Value := gProgressValue
+        }
+    } catch {
+        ; Ignore errors if the control is destroyed
+    }
+}
+
 HideProgress() {
-    global gProgress
+    global gProgress, gSpinnerTimer
     if IsObject(gProgress) {
-        try gProgress.Destroy()
+        try {
+            SetTimer(gSpinnerTimer, 0)  ; Stop the progress timer
+            gProgress.Destroy()
+        }
         gProgress := 0
     }
 }
@@ -825,9 +1011,60 @@ GetSelectedText(maxWait := 0.25) {
     }
 }
 
-
 HasMeaningfulSelection(minLen := 10) {
     sel := GetSelectedText()
-    compact := RegExReplace(sel, "\s+", " ")
+    compact := RegExReplace(sel, "\\s+", " ")
     return StrLen(Trim(compact)) >= minLen
+}
+
+Notify(msg, type := "info") {
+    global g_UI, g_active_notification
+    
+    ; Destroy any existing notification
+    if (IsObject(g_active_notification)) {
+        try g_active_notification.Destroy()
+    }
+    
+    ; Create notification dialog
+    dlg := Gui("+AlwaysOnTop +ToolWindow -SysMenu +Border")
+    dlg.SetFont(g_UI["FontSize"], g_UI["Font"])
+    
+    ; Set colors based on notification type
+    bgColor := g_UI["BackgroundColor"]
+    if (type = "error") {
+        bgColor := g_UI["AccentColor"]
+    } else if (type = "warning") {
+        bgColor := g_UI["WarningColor"]
+    } else if (type = "success") {
+        bgColor := g_UI["SecondaryColor"]
+    }
+    
+    dlg.BackColor := bgColor
+    
+    ; Add message text
+    txt := dlg.Add("Text", "Background" bgColor, msg)
+    txt.SetFont("s10", g_UI["Font"])
+    
+    ; Calculate position (top-right corner)
+    dlg.GetClientPos(,, &width, &height)
+    x := A_ScreenWidth - width - 20
+    y := 30
+    
+    ; Show the notification
+    dlg.Show("x" x " y" y " NoActivate")
+    g_active_notification := dlg
+    
+    ; Auto-hide after 2 seconds
+    timerCallback := NotificationTimer.Bind()
+    SetTimer(timerCallback, -2000)
+}
+
+NotificationTimer(*) {
+    global g_active_notification
+    if (IsObject(g_active_notification)) {
+        try {
+            g_active_notification.Destroy()
+        }
+        g_active_notification := ""
+    }
 }

@@ -2,5 +2,4 @@ EnvVariableRotator.ini
 *.ahk.bak
 DevCacheCleaner/cleanup.log
 HotStrings.ahk
-error.log
 debug.log
