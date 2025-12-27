@@ -36,4 +36,3 @@ A_TrayMenu.Add("⏹ Exit", (*) => ExitApp())
 #Include ShortCuts.ahk
 #Include UpdateChecker.ahk
 #Include dpi.ahk
-#Include git_folder_icon_changer.ahk
