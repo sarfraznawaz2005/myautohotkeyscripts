@@ -74,11 +74,18 @@ RunPHPCode(*) {
     }
 }
 
-; Function to add PHP tags if missing
+; Function to add PHP tags if missing and a semicolon to the end of the code block if appropriate
 AddPHPTags(code) {
     trimmedCode := Trim(code)
 
-    ; Check if code already starts with <?php or <?
+    ; New logic: Add semicolon to the end of the code block if it doesn't already have one
+    ; It also checks if the code block doesn't end with a PHP closing tag (?>) or a closing brace (})
+    ; which generally do not require a semicolon.
+    if (trimmedCode != "" && !RegExMatch(trimmedCode, "(;|\?>|\})$\s*$")) {
+        trimmedCode .= ";"
+    }
+
+    ; Original logic: Check if code already starts with <?php or <?
     if (RegExMatch(trimmedCode, "^<\?(?:php)?")) {
         return trimmedCode
     }
