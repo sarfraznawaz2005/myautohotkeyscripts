@@ -35,4 +35,5 @@ A_TrayMenu.Add("⏹ Exit", (*) => ExitApp())
 #Include PHPCodeRunner.ahk
 #Include ShortCuts.ahk
 #Include UpdateChecker.ahk
+#Include AirQuality.ahk
 #Include dpi.ahk
