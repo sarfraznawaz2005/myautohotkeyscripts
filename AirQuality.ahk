@@ -43,15 +43,15 @@ icon_hazardous=error
 
 
 ; ---------- Global Variables ----------
-global LOG_DEBUG := A_ScriptDir "\airdebug.log"
-global CONFIG_FILE := A_ScriptDir "\airquality.ini"
-global CONFIG
+global LOG_AQ_DEBUG := A_ScriptDir "\airdebug.log"
+global AQ_CONFIG_FILE := A_ScriptDir "\airquality.ini"
+global AQ_CONFIG
 
 ; ---------- Logging ----------
-try FileDelete(LOG_DEBUG)
+try FileDelete(LOG_AQ_DEBUG)
 
 LogAQDebug(msg) {
-    ;FileAppend(Format("[{1}] DEBUG: {2}`r`n", A_Now, msg), LOG_DEBUG)
+    ;FileAppend(Format("[{1}] DEBUG: {2}`r`n", A_Now, msg), LOG_AQ_DEBUG)
 }
 
 LogAQDebug("Script started")
@@ -59,36 +59,36 @@ LogAQDebug("Script started")
 ; Configuration loader
 LoadAQConfig() {
     try {
-        global CONFIG
-        CONFIG := Map()
+        global AQ_CONFIG
+        AQ_CONFIG := Map()
 
         ; API settings
-        CONFIG["api_url"] := IniRead(CONFIG_FILE, "AirQuality", "api_url")
-        CONFIG["check_interval_hours"] := IniRead(CONFIG_FILE, "AirQuality", "check_interval_hours")
+        AQ_CONFIG["api_url"] := IniRead(AQ_CONFIG_FILE, "AirQuality", "api_url")
+        AQ_CONFIG["check_interval_hours"] := IniRead(AQ_CONFIG_FILE, "AirQuality", "check_interval_hours")
 
         ; Labels
-        CONFIG["label_good"] := IniRead(CONFIG_FILE, "AirQuality", "label_good")
-        CONFIG["label_moderate"] := IniRead(CONFIG_FILE, "AirQuality", "label_moderate")
-        CONFIG["label_unhealthy"] := IniRead(CONFIG_FILE, "AirQuality", "label_unhealthy")
-        CONFIG["label_cautious"] := IniRead(CONFIG_FILE, "AirQuality", "label_cautious")
-        CONFIG["label_very_unhealthy"] := IniRead(CONFIG_FILE, "AirQuality", "label_very_unhealthy")
-        CONFIG["label_hazardous"] := IniRead(CONFIG_FILE, "AirQuality", "label_hazardous")
+        AQ_CONFIG["label_good"] := IniRead(AQ_CONFIG_FILE, "AirQuality", "label_good")
+        AQ_CONFIG["label_moderate"] := IniRead(AQ_CONFIG_FILE, "AirQuality", "label_moderate")
+        AQ_CONFIG["label_unhealthy"] := IniRead(AQ_CONFIG_FILE, "AirQuality", "label_unhealthy")
+        AQ_CONFIG["label_cautious"] := IniRead(AQ_CONFIG_FILE, "AirQuality", "label_cautious")
+        AQ_CONFIG["label_very_unhealthy"] := IniRead(AQ_CONFIG_FILE, "AirQuality", "label_very_unhealthy")
+        AQ_CONFIG["label_hazardous"] := IniRead(AQ_CONFIG_FILE, "AirQuality", "label_hazardous")
 
         ; Statements
-        CONFIG["statement_good"] := IniRead(CONFIG_FILE, "AirQuality", "statement_good")
-        CONFIG["statement_moderate"] := IniRead(CONFIG_FILE, "AirQuality", "statement_moderate")
-        CONFIG["statement_unhealthy"] := IniRead(CONFIG_FILE, "AirQuality", "statement_unhealthy")
-        CONFIG["statement_cautious"] := IniRead(CONFIG_FILE, "AirQuality", "statement_cautious")
-        CONFIG["statement_very_unhealthy"] := IniRead(CONFIG_FILE, "AirQuality", "statement_very_unhealthy")
-        CONFIG["statement_hazardous"] := IniRead(CONFIG_FILE, "AirQuality", "statement_hazardous")
+        AQ_CONFIG["statement_good"] := IniRead(AQ_CONFIG_FILE, "AirQuality", "statement_good")
+        AQ_CONFIG["statement_moderate"] := IniRead(AQ_CONFIG_FILE, "AirQuality", "statement_moderate")
+        AQ_CONFIG["statement_unhealthy"] := IniRead(AQ_CONFIG_FILE, "AirQuality", "statement_unhealthy")
+        AQ_CONFIG["statement_cautious"] := IniRead(AQ_CONFIG_FILE, "AirQuality", "statement_cautious")
+        AQ_CONFIG["statement_very_unhealthy"] := IniRead(AQ_CONFIG_FILE, "AirQuality", "statement_very_unhealthy")
+        AQ_CONFIG["statement_hazardous"] := IniRead(AQ_CONFIG_FILE, "AirQuality", "statement_hazardous")
 
         ; Icons
-        CONFIG["icon_good"] := IniRead(CONFIG_FILE, "AirQuality", "icon_good")
-        CONFIG["icon_moderate"] := IniRead(CONFIG_FILE, "AirQuality", "icon_moderate")
-        CONFIG["icon_unhealthy"] := IniRead(CONFIG_FILE, "AirQuality", "icon_unhealthy")
-        CONFIG["icon_cautious"] := IniRead(CONFIG_FILE, "AirQuality", "icon_cautious")
-        CONFIG["icon_very_unhealthy"] := IniRead(CONFIG_FILE, "AirQuality", "icon_very_unhealthy")
-        CONFIG["icon_hazardous"] := IniRead(CONFIG_FILE, "AirQuality", "icon_hazardous")
+        AQ_CONFIG["icon_good"] := IniRead(AQ_CONFIG_FILE, "AirQuality", "icon_good")
+        AQ_CONFIG["icon_moderate"] := IniRead(AQ_CONFIG_FILE, "AirQuality", "icon_moderate")
+        AQ_CONFIG["icon_unhealthy"] := IniRead(AQ_CONFIG_FILE, "AirQuality", "icon_unhealthy")
+        AQ_CONFIG["icon_cautious"] := IniRead(AQ_CONFIG_FILE, "AirQuality", "icon_cautious")
+        AQ_CONFIG["icon_very_unhealthy"] := IniRead(AQ_CONFIG_FILE, "AirQuality", "icon_very_unhealthy")
+        AQ_CONFIG["icon_hazardous"] := IniRead(AQ_CONFIG_FILE, "AirQuality", "icon_hazardous")
 
         LogAQDebug("Configuration loaded")
         return true
@@ -108,9 +108,9 @@ try {
     }
 
     ; Set up timer for periodic checks
-    checkInterval := Integer(CONFIG["check_interval_hours"]) * 3600000  ; Convert hours to milliseconds
-    SetTimer(CheckAirQuality, checkInterval)
-    LogAQDebug("Timer set for every " . CONFIG["check_interval_hours"] . " hour(s)")
+    checkAQInterval := Integer(AQ_CONFIG["check_interval_hours"]) * 3600000  ; Convert hours to milliseconds
+    SetTimer(CheckAirQuality, checkAQInterval)
+    LogAQDebug("Timer set for every " . AQ_CONFIG["check_interval_hours"] . " hour(s)")
 
     LogAQDebug("Air Quality Checker started successfully")
 
@@ -123,45 +123,45 @@ try {
 GetAQILevel(aqi) {
     if (aqi <= 50) {
         return Map(
-            "level", CONFIG["label_good"],
-            "statement", CONFIG["statement_good"],
-            "icon", CONFIG["icon_good"]
+            "level", AQ_CONFIG["label_good"],
+            "statement", AQ_CONFIG["statement_good"],
+            "icon", AQ_CONFIG["icon_good"]
         )
     } else if (aqi <= 100) {
         return Map(
-            "level", CONFIG["label_moderate"],
-            "statement", CONFIG["statement_moderate"],
-            "icon", CONFIG["icon_moderate"]
+            "level", AQ_CONFIG["label_moderate"],
+            "statement", AQ_CONFIG["statement_moderate"],
+            "icon", AQ_CONFIG["icon_moderate"]
         )
     } else if (aqi <= 150) {
         return Map(
-            "level", CONFIG["label_unhealthy"],
-            "statement", CONFIG["statement_unhealthy"],
-            "icon", CONFIG["icon_unhealthy"]
+            "level", AQ_CONFIG["label_unhealthy"],
+            "statement", AQ_CONFIG["statement_unhealthy"],
+            "icon", AQ_CONFIG["icon_unhealthy"]
         )
     } else if (aqi <= 200) {
         return Map(
-            "level", CONFIG["label_cautious"],
-            "statement", CONFIG["statement_cautious"],
-            "icon", CONFIG["icon_cautious"]
+            "level", AQ_CONFIG["label_cautious"],
+            "statement", AQ_CONFIG["statement_cautious"],
+            "icon", AQ_CONFIG["icon_cautious"]
         )
     } else if (aqi <= 300) {
         return Map(
-            "level", CONFIG["label_very_unhealthy"],
-            "statement", CONFIG["statement_very_unhealthy"],
-            "icon", CONFIG["icon_very_unhealthy"]
+            "level", AQ_CONFIG["label_very_unhealthy"],
+            "statement", AQ_CONFIG["statement_very_unhealthy"],
+            "icon", AQ_CONFIG["icon_very_unhealthy"]
         )
     } else {
         return Map(
-            "level", CONFIG["label_hazardous"],
-            "statement", CONFIG["statement_hazardous"],
-            "icon", CONFIG["icon_hazardous"]
+            "level", AQ_CONFIG["label_hazardous"],
+            "statement", AQ_CONFIG["statement_hazardous"],
+            "icon", AQ_CONFIG["icon_hazardous"]
         )
     }
 }
 
 ; Function to show native Windows notification
-ShowNotification(aqi, levelInfo) {
+ShowAQNotification(aqi, levelInfo) {
     try {
         LogAQDebug("Showing Windows notification for AQI: " . aqi . ", Level: " . levelInfo["level"])
 
@@ -181,7 +181,7 @@ ShowNotification(aqi, levelInfo) {
 }
 
 ; Function to show error notifications using Windows notifications
-ShowErrorNotification(message) {
+ShowAQErrorNotification(message) {
     try {
         LogAQDebug("Showing error notification: " . message)
 
@@ -196,9 +196,9 @@ ShowErrorNotification(message) {
 ; Function to check air quality periodically
 CheckAirQuality() {
     LogAQDebug("Checking air quality")
-
+        
     try {
-        api_url := CONFIG["api_url"]
+        api_url := AQ_CONFIG["api_url"]
         whr := ComObject("WinHttp.WinHttpRequest.5.1")
         whr.Open("GET", api_url, false)
         whr.Send()
@@ -211,23 +211,23 @@ CheckAirQuality() {
                 LogAQDebug("Current AQI: " . currentAqi)
 
                 levelInfo := GetAQILevel(currentAqi)
-                ShowNotification(currentAqi, levelInfo)
+                ShowAQNotification(currentAqi, levelInfo)
             } else {
                 LogAQDebug("AQI value not found in API response")
                 ; Show error notification
-                ShowErrorNotification("Failed to parse AQI from API response")
+                ShowAQErrorNotification("Failed to parse AQI from API response")
             }
         } else {
             LogAQDebug("API request failed with status: " . whr.Status)
-            ShowErrorNotification("Failed to fetch air quality data from API")
+            ShowAQErrorNotification("Failed to fetch air quality data from API")
         }
     } catch as ex {
         LogAQDebug("Error in CheckAirQuality: " . ex.Message)
-        ShowErrorNotification("Error checking air quality: " . ex.Message)
+        ShowAQErrorNotification("Error checking air quality: " . ex.Message)
     }
 }
 
-; test
-;CheckAirQuality()
+; Also check on script startup
+; CheckAirQuality()
 
 LogAQDebug("Script setup completed")

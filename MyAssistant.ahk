@@ -22,8 +22,11 @@ A_IconTip := "My Assistant"
 
 ; --- Tray Menu ---
 A_TrayMenu.Delete()
-A_TrayMenu.Add("🔄 Reload", (*) => Reload())
-A_TrayMenu.Add("⏹ Exit", (*) => ExitApp())
+A_TrayMenu.Add("Check Air Quality Index", (*) => CheckAirQuality())
+A_TrayMenu.Add("Fix My Screen DPI", (*) => fixMyDPI())
+A_TrayMenu.Add()
+A_TrayMenu.Add("Reload", (*) => Reload())
+A_TrayMenu.Add("Exit", (*) => ExitApp())
 
 ; ------------------------------------------------------------------------------------------
 ; Include Our Scripts
@@ -34,6 +37,6 @@ A_TrayMenu.Add("⏹ Exit", (*) => ExitApp())
 #Include AiContextMenu.ahk
 #Include PHPCodeRunner.ahk
 #Include ShortCuts.ahk
-#Include UpdateChecker.ahk
 #Include AirQuality.ahk
+#Include UpdateChecker.ahk
 #Include dpi.ahk

@@ -6,6 +6,12 @@
 ; Hotkey to trigger the DPI change sequence
 ^`::
 {
+	fixMyDPI()    
+    return
+}
+
+fixMyDPI()
+{
     ; Get the device path of the monitor where the mouse is currently located
     monitorPath := getCurrentDisplayPathByMouse()
 
@@ -28,8 +34,6 @@
     setDPI(monitorPath, 4)
     Sleep 1000
     setDPI(monitorPath, -1)
-    
-    return
 }
 
 getCurrentDisplayPathByMouse()
