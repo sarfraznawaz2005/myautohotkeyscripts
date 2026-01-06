@@ -43,18 +43,18 @@ icon_hazardous=error
 
 
 ; ---------- Global Variables ----------
-global LOG_DEBUG := A_ScriptDir "\debug.log"
+global LOG_DEBUG := A_ScriptDir "\airdebug.log"
 global CONFIG_FILE := A_ScriptDir "\airquality.ini"
 global CONFIG
 
 ; ---------- Logging ----------
 try FileDelete(LOG_DEBUG)
 
-LogDebug(msg) {
+LogAQDebug(msg) {
     ;FileAppend(Format("[{1}] DEBUG: {2}`r`n", A_Now, msg), LOG_DEBUG)
 }
 
-LogDebug("Script started")
+LogAQDebug("Script started")
 
 ; Configuration loader
 LoadAQConfig() {
@@ -90,32 +90,32 @@ LoadAQConfig() {
         CONFIG["icon_very_unhealthy"] := IniRead(CONFIG_FILE, "AirQuality", "icon_very_unhealthy")
         CONFIG["icon_hazardous"] := IniRead(CONFIG_FILE, "AirQuality", "icon_hazardous")
 
-        LogDebug("Configuration loaded")
+        LogAQDebug("Configuration loaded")
         return true
     } catch as ex {
-        LogDebug("Failed to load configuration: " . ex.Message)
+        LogAQDebug("Failed to load configuration: " . ex.Message)
         return false
     }
 }
 
 ; ---------- Auto-execute Section ----------
 try {
-    LogDebug("Air Quality Checker starting up")
+    LogAQDebug("Air Quality Checker starting up")
 
     if (!LoadAQConfig()) {
-        LogDebug("Failed to load configuration, exiting")
+        LogAQDebug("Failed to load configuration, exiting")
         ExitApp
     }
 
     ; Set up timer for periodic checks
     checkInterval := Integer(CONFIG["check_interval_hours"]) * 3600000  ; Convert hours to milliseconds
     SetTimer(CheckAirQuality, checkInterval)
-    LogDebug("Timer set for every " . CONFIG["check_interval_hours"] . " hour(s)")
+    LogAQDebug("Timer set for every " . CONFIG["check_interval_hours"] . " hour(s)")
 
-    LogDebug("Air Quality Checker started successfully")
+    LogAQDebug("Air Quality Checker started successfully")
 
 } catch as ex {
-    LogDebug("Startup failed: " . ex.Message)
+    LogAQDebug("Startup failed: " . ex.Message)
     ExitApp
 }
 
@@ -163,7 +163,7 @@ GetAQILevel(aqi) {
 ; Function to show native Windows notification
 ShowNotification(aqi, levelInfo) {
     try {
-        LogDebug("Showing Windows notification for AQI: " . aqi . ", Level: " . levelInfo["level"])
+        LogAQDebug("Showing Windows notification for AQI: " . aqi . ", Level: " . levelInfo["level"])
 
         ; TrayTip options: 1=Info, 2=Warning, 3=Error
         iconType := (levelInfo["icon"] = "error") ? 3 : (levelInfo["icon"] = "warning") ? 2 : 1
@@ -173,29 +173,29 @@ ShowNotification(aqi, levelInfo) {
 
         TrayTip(statement, title, iconType)
 
-        LogDebug("Windows notification displayed successfully")
+        LogAQDebug("Windows notification displayed successfully")
 
     } catch as ex {
-        LogDebug("Failed to show Windows notification: " . ex.Message)
+        LogAQDebug("Failed to show Windows notification: " . ex.Message)
     }
 }
 
 ; Function to show error notifications using Windows notifications
 ShowErrorNotification(message) {
     try {
-        LogDebug("Showing error notification: " . message)
+        LogAQDebug("Showing error notification: " . message)
 
         TrayTip("Air Quality Error", message, 3)  ; 3 = Error icon
 
     } catch as ex {
-        LogDebug("Failed to show error notification: " . ex.Message)
+        LogAQDebug("Failed to show error notification: " . ex.Message)
     }
 }
 
 
 ; Function to check air quality periodically
 CheckAirQuality() {
-    LogDebug("Checking air quality")
+    LogAQDebug("Checking air quality")
 
     try {
         api_url := CONFIG["api_url"]
@@ -208,28 +208,26 @@ CheckAirQuality() {
             aqiMatch := RegExMatch(responseText, '"aqi":(\d+)', &match)
             if (aqiMatch) {
                 currentAqi := Integer(match[1])
-                LogDebug("Current AQI: " . currentAqi)
+                LogAQDebug("Current AQI: " . currentAqi)
 
                 levelInfo := GetAQILevel(currentAqi)
                 ShowNotification(currentAqi, levelInfo)
             } else {
-                LogDebug("AQI value not found in API response")
+                LogAQDebug("AQI value not found in API response")
                 ; Show error notification
                 ShowErrorNotification("Failed to parse AQI from API response")
             }
         } else {
-            LogDebug("API request failed with status: " . whr.Status)
+            LogAQDebug("API request failed with status: " . whr.Status)
             ShowErrorNotification("Failed to fetch air quality data from API")
         }
     } catch as ex {
-        LogDebug("Error in CheckAirQuality: " . ex.Message)
+        LogAQDebug("Error in CheckAirQuality: " . ex.Message)
         ShowErrorNotification("Error checking air quality: " . ex.Message)
     }
 }
 
-TestHazardous() {
-    levelInfo := GetAQILevel(350)  ; Hazardous level
-    ShowNotification(350, levelInfo)
-}
+; test
+;CheckAirQuality()
 
-LogDebug("Script setup completed - use Ctrl+Alt+Q to quit")
+LogAQDebug("Script setup completed")
