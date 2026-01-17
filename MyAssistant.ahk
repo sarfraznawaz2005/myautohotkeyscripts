@@ -32,6 +32,7 @@ A_TrayMenu.Add("Exit", (*) => ExitApp())
 ; Include Our Scripts
 ; ------------------------------------------------------------------------------------------
 
+#Include BrightnessCheck.ahk
 #Include HotStrings.ahk
 #Include EnvVariableRotator.ahk
 #Include AiContextMenu.ahk
@@ -40,3 +41,5 @@ A_TrayMenu.Add("Exit", (*) => ExitApp())
 #Include AirQuality.ahk
 #Include UpdateChecker.ahk
 #Include dpi.ahk
+
+
